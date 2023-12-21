@@ -1,6 +1,12 @@
 from casadi import *
 import numpy as np
 def main():
+     # ユーザーが設定する制約条件
+    M=10
+    max_force = 100 
+    max_power = 100
+    max_cf = 100
+    
     # 状態変数の設定
     X =SX.sym('X')
     Y =SX.sym('Y')
@@ -9,31 +15,29 @@ def main():
     beta =SX.sym('beta')
     theta_dot =SX.sym('theta_dot')
     beta_dot =SX.sym('beta_dot')
+    time =SX.sym('time')
     # 状態ベクトルに統合
-    x = vertcat(X,Y,theta,V,beta,theta_dot,beta_dot)
+    x = vertcat(X,Y,theta,V,beta,theta_dot,beta_dot,time)
     # 入力変数の設定
-    theta_ddot =SX.sym('theta_ddot')
-    beta_ddot =SX.sym('beta_ddot')
+    Uw =SX.sym('Uw')
+    Us =SX.sym('Us')
+    Utheta =SX.sym('Utheta')
     # 入力ベクトルに統合
-    u = vertcat(theta_ddot,beta_ddot)
+    u = vertcat(Uw,Us,Utheta)
     # 微分方程式の設定
-    x_dot = vertcat(V*np.cos(beta),V*np.sin(beta),theta_dot,theta_ddot,beta_dot,beta_ddot)
+    x_dot = vertcat(V*np.cos(beta),V*np.sin(beta),theta_dot,Uw/M,beta_dot,Utheta,Us,1)
     
     
     # 目的関数の設定(時間を最小化)
-    cost_time = SX.sym('cost_time') # TODO SXだとエラーが出る
-    obj = cost_time
+    obj = time
     
     # 制約条件の設定
-    steer_acc_constraint = 1
-    steer_speed_constraint = 1
-    # ユーザーが設定する
-    max_force = 100 
-    max_power = 100
-    max_cf = 100
+    Cf = M*V*beta_dot
+    Power = M*V*Uw
+
     
     # 制約条件の統合
-    g = vertcat(steer_acc_constraint,steer_speed_constraint,max_force,max_power,max_cf)
+    g = vertcat(Cf,Power,max_force,max_power,max_cf)
     
     # 最適問題の設定
     nlp = {'x':x,'f':obj,'g':g}
