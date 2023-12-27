@@ -2,6 +2,8 @@ from casadi import *
 import numpy as np
 import math
 
+# direct collocationという手法を使っている
+
 # 問題設定
 T = 10.0     # ホライゾン長さ
 N = 100      # ホライゾン離散化グリッド数
@@ -43,7 +45,7 @@ for k in range(N):
     V = Uk[0]     # 速度[m/s]（制御入力）
     beta_dot = Uk[1]   # 角速度[rad/s]
     
-    # ステージコストのパラメータ 
+    # ステージコストのパラメータ 線形二次レギュレータ(Linear-Quadratic Regulator:LQR)を使用している
     x_ref = [2.0, 2.0, 0.0]# 目標状態
     Q = [1.0, 1.0, 0.01]       # 状態への重み
     R = [1.0,1.0]                         # 制御入力への重み
