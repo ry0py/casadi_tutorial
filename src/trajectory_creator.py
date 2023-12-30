@@ -1,8 +1,6 @@
 from casadi import *
 import numpy as np
-
-
-
+ 
 
 # 問題設定
 T = 10.0     # ホライゾン長さ

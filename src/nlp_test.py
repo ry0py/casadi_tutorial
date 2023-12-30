@@ -2,7 +2,7 @@ from casadi import *
 import numpy as np
 import math
 
-# direct collocationという手法を使っている
+# direct collocationであるが離散化のみ前進オイラー法を使用している。
 
 # 問題設定
 T = 10.0     # ホライゾン長さ
