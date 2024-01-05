@@ -1,142 +1,184 @@
+# TODO やりたいこと
+
+
 from casadi import *
-import numpy as np
- 
+import numpy
 
-# 問題設定
-T = 10.0     # ホライゾン長さ
-N = 100      # ホライゾン離散化グリッド数
-dt = T / N  # 離散化ステップ
-nx = 8      # 状態空間の次元
-nu = 3      # 制御入力の次元
-
-M =10 # 機体の質量[kg]
-
-# 以下で非線形計画問題(NLP)を定式化
-w = []    # 最適化変数を格納する list
-w0 = []   # 最適化変数(w)の初期推定解を格納する list 状態xも出力uも両方入れる
-lbw = []  # 最適化変数(w)の lower bound を格納する list 対応するリスト番号のところに数値を入れる
-ubw = []  # 最適化変数(w)の upper bound を格納する list
-J = 0     # コスト関数 
-g = []    # 制約（等式制約，不等式制約どちらも）を格納する list
-lbg = []  # 制約関数(g)の lower bound を格納する list 等式制約は lower-bound と upper-bound を両方0にする
-ubg = []  # 制約関数(g)の upper bound を格納する list
-
-Xk = MX.sym('X0', nx) # 初期時刻の状態ベクトル x0
-w += [Xk]             # x0 を 最適化変数 list (w) に追加
-# 初期状態は given という条件を等式制約として考慮
-lbw += [0, 0, 0 ,0 ,0 ,0 ,0 ,0 ]  # 初期の境界値条件をあらかじめ記入しておく(見やすい)　リストに逐次追加していく 
-ubw += [0, 0, 0 ,0 ,0 ,0 ,0 ,0 ]   
-w0 +=  [0, 0, 0 ,0 ,0 ,0 ,0 ,0 ]  # x0 の初期推定解 TODO startpointでユーザーが決めれるように
-
-
-# 離散化ステージ 0~N-1 までのコストと制約を設定
-for k in range(N):
-    Uk = MX.sym('U_' + str(k), nu) # 時間ステージ k の制御入力 uk を表す変数
-    w   += [Uk]                    # uk を最適化変数 list に追加
-    lbw += [-1,-1,-1]                 # uk の lower-bound TODO 入力の制限を決める
-    ubw += [1,1,1]                  # uk の upper-bound TODO 入力の制限を決める
-    w0  += [0,0,0]                     # uk の初期推定解
+class TrajectoryCreator:
+    def __init__(self):
+        self.state = []
+        self.N = 100      # ホライゾン離散化グリッド数 #TODO 経過点を増やした場合の合計にするか悩み中
+        self.opti = casadi.Opti()
+        self.M=0 # 機体の質量[kg]
+        self.max_steer_acc=0 # 操舵の角加速度[rad/s^2]
+        self.max_steer_vel=0 # 操舵の角速度[rad/s]
+        self.max_steer_torque=0 # 操舵のトルク[Nm]
+        self.max_power=0 # 機体の最大出力[W]
+        self.max_cf=0 # 機体の最大コーナリングフォース[N]
+        self.ax_steer_torque=0 # 操舵のトルク[Nm]
+        self.sol = None
+        self.X = 0
+        self.u = 0
+        self.z = 0
+        self.p = 0 
+        self.T = 0
+        self.dt = 0
+    
+    def _set_variable(self):
+        nx = 8      # 状態空間の次元
+        nu = 3      # 制御入力の次元
+        np = 6      # パラメータの次元
+        nz = 2      # 代数変数の次元
+        self.X = self.opti.variable(nx,self.N*(len(self.state)-1)) # ほしいのは間の数なので-1
+        self.u = self.opti.variable(nu,self.N*(len(self.state)-1))
+        self.z = self.opti.variable(nz,self.N*(len(self.state)-1))
+        self.p = self.opti.parameter(np) 
+        self.T = self.opti.variable()
+        self.dt = self.T/(self.N*(len(self.state)-1))
+    
+    def _add_point(self,x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot):
+        self.state.append([x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot])
+        # 指定したポイントの数だけfor分を回す
+    def _problem(self,num):
+        for i in range((self.N-1)*num,(self.N-1)*(num+1)):
+            print(i)
+            x = self.X[0,i]
+            y = self.X[1,i]
+            theta = self.X[2,i]
+            V = self.X[3,i]
+            beta = self.X[4,i]
+            theta_dot = self.X[5,i]
+            beta_dot = self.X[6,i]
+            theta_ddot = self.X[7,i]
+            Uw = self.u[0,i]
+            Us = self.u[1,i]
+            Utheta = self.u[2,i]
+            cf = self.z[0,i]
+            Power = self.z[1,i]
+            self.opti.subject_to(self.dt>=0)
+            self.opti.subject_to(self.X[0,i+1]==x+ self.dt*V*cos(beta))
+            self.opti.subject_to(self.X[1,i+1]==y + self.dt*V*sin(beta))
+            self.opti.subject_to(self.X[2,i+1]==theta + self.dt*theta_dot)
+            self.opti.subject_to(self.X[3,i+1]==V + self.dt*Uw/self.M)
+            self.opti.subject_to(self.X[4,i+1]==beta + self.dt*beta_dot)
+            self.opti.subject_to(self.X[5,i+1]==theta_dot + self.dt*theta_ddot)
+            self.opti.subject_to(self.X[6,i+1]==beta_dot +self.dt*Us)
+            self.opti.subject_to(self.X[7,i+1]==theta_ddot + self.dt*Utheta)
+            self.opti.subject_to(cf-self.M*V*beta_dot==0)
+            self.opti.subject_to(Power-self.M*V*Uw==0)
+            self.opti.subject_to(-self.max_steer_acc<=Us)
+            self.opti.subject_to(Us<=self.max_steer_acc)
+            self.opti.subject_to(self.max_steer_vel<=beta_dot)
+            self.opti.subject_to(beta_dot<=self.max_steer_vel)
+            self.opti.subject_to(-self.ax_steer_torque<=Uw)
+            self.opti.subject_to(Uw<=self.max_steer_torque)
+            self.opti.subject_to(-self.max_power<=Power)
+            self.opti.subject_to(Power<=self.max_power)
+            self.opti.subject_to(-self.max_cf<=cf)
+            self.opti.subject_to(cf<=self.max_cf)
+        
+    def _solve(self):
+        self._set_variable()
+        for i in range(len(self.state)-1): #終端に達したら終わりなので-1で合計で-2
+            self._problem(i)
+            for k in range(len(self.state[i])):
+                if self.state[i][k] !=None:
+                    self.opti.subject_to(self.X[k,self.N*i]==self.state[i][k]) # 初期状態の設定
+                    self.opti.subject_to(self.X[k,self.N*i-1]==self.state[i+1][k]) # 終端状態の設定
+        self.opti.minimize(self.T)
+        self.opti.solver('ipopt')
+        print(self.opti.debug.value(self.T))
+        # self.sol = self.opti.solve()
+        
+    def start_point(self,x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot):
+        self._add_point(x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot)
+    
+    def pass_point(self,x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot):
+        self._add_point(x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot)
+    
+    def end_point(self,x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot):
+        self._add_point(x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot)
+        self._solve()
 
     
-    x = Xk[0]     # x[m]
-    y = Xk[1]    # y[m]
-    theta = Xk[2]    # 速度ベクトルの水平方向から見た角度[rad]
-    V = Xk[3]     # 速度[m/s]（制御入力）
-    beta = Xk[4]   # 角速度[rad/s]
-    theta_dot = Xk[5] # 角速度[rad/s]
-    beta_dot = Xk[6] # 操舵の角加速度[rad/s^2]
-    theta_ddot = Xk[7] # 機体の角加速度[rad/s^2]
     
-    Uw = Uk[0] # トルク？？？
-    Us = Uk[1] # 推力？？？
-    Utheta = Uk[2] # 操舵の加速度？？？
+    def print_sol(self):
+        x_opt = self.sol.value(self.X) # 結果の取得
+        u_opt = self.sol.value(self.u) # 結果の取得
+        z_opt = self.sol.value(self.z) # 結果の取得
+        t_opt = self.sol.value(self.T) # 結果の取得
+        dt_opt = numpy.linspace(0,t_opt,num =self.N)
+        print(t_opt)
+
+        # 結果のプロット
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+        plt.plot(x_opt[0,:],x_opt[1,:],'-')
+        plt.xlabel('x')
+        plt.ylabel('y')
+        plt.title('position')
+        plt.grid()
+
+        plt.figure()
+        plt.xlabel('Time [s]')
+        plt.ylabel('Velocity [m/s]')
+        plt.title('Velocity over Time')
+        plt.plot(dt_opt, x_opt[3,:],'-')
+        plt.grid()
+
+        plt.figure()
+        plt.xlabel('Time [s]')
+        plt.ylabel('Steering Angle [rad]')
+        plt.plot(dt_opt, x_opt[4,:],'-')
+        plt.grid()
+
+        plt.figure()
+        plt.xlabel('Time [s]')
+        plt.ylabel('Steering Angle [rad]')
+        plt.plot(dt_opt, x_opt[5,:],'-')
+        plt.grid()
+
+        plt.figure()
+        plt.xlabel('Time [s]')
+        plt.ylabel('Steering Angle [rad]')
+        plt.plot(dt_opt, x_opt[6,:],'-')
+        plt.grid()
+
+        plt.figure()
+        plt.plot(dt_opt, z_opt[0,:],'-')
+        plt.grid()
+
+        plt.figure()
+        plt.plot(dt_opt, z_opt[1,:],'-')
+        plt.grid()
+
+        plt.show()
+
+    
+
+        
+    
+    def set_parameter(self,M,max_steer_acc,max_steer_vel,max_steer_torque,max_power,max_cf):
+        self.M = self.p[0]
+        self.max_steer_acc = self.p[1]
+        self.max_steer_vel = self.p[2]
+        self.max_steer_torque = self.p[3]
+        self.max_power = self.p[4]
+        self.max_cf = self.p[5]
+        self.opti.set_value(self.M,M)
+        self.opti.set_value(self.max_steer_acc,max_steer_acc)
+        self.opti.set_value(self.max_steer_vel,max_steer_vel)
+        self.opti.set_value(self.max_steer_torque,max_steer_torque)
+        self.opti.set_value(self.max_power,max_power)
+        self.opti.set_value(self.max_cf,max_cf)
     
     
-    # ステージコストのパラメータ 
-    x_ref = [2.0, 2.0 , 0 , 0 , 0 , 0 , 0 , 0]  # 目標状態
-    Q = [10.0, 10.0, 0.01 , 0.1 ,0.1 ,0.1 , 0.1 ,0.1]       # 状態への重み
-    R = [1.0,1.0,1.0]                         # 制御入力への重み
-    L = 0                             # ステージコスト
-    for i in range(nx):
-        L += 0.5 * Q[i] * (Xk[i]-x_ref[i])**2 
-    for i in range(nu):
-        L += 0.5 * R[i] * Uk[i]**2
-    J = J + L * dt                    # コスト関数にステージコストを追加
-
-    # Forward Euler による離散化状態方程式
-    Xk_next = vertcat(x + V*np.cos(beta) * dt,  #x
-                      y + V*np.sin(beta) * dt, #y
-                      theta + theta_dot * dt,# theta
-                      V + Uw/M * dt, # V
-                      beta + beta_dot * dt,
-                      theta_dot + theta_ddot * dt,
-                      beta_dot + Us,
-                      theta_ddot + Utheta)
-    Xk1 = MX.sym('X_' + str(k+1), nx)  # 時間ステージ k+1 の状態 xk+1 を表す変数
-    w   += [Xk1]                       # xk+1 を最適化変数 list に追加
-    lbw += [-inf, -inf, -inf,-inf,-inf,-inf,-inf,-inf]    # xk+1 の lower-bound （指定しない要素は -inf）TODO ここで制約条件を指定する
-    ubw += [inf, inf, inf,inf,inf,inf,inf,inf]        # xk+1 の upper-bound （指定しない要素は inf）TODO ユーザーが指定しない場合はinfにする
-    w0 += [0, 0, 0 , 0 , 0 , 0 , 0 , 0]         # xk+1 の初期推定解　TODO 一つ前のステップの状態を入れる？？？
-
-    # 状態方程式(xk+1=xk+fk*dt) を等式制約として導入
-    g   += [Xk_next-Xk1] # TODO 別に状態方程式のdtをかけてる項のみでも同じじゃね？？？
-    lbg += [0, 0, 0, 0, 0, 0, 0, 0] # 等式制約は lower-bound と upper-bound を同じ値にすることで設定 ここは状態方程式で等式になってほしいから確定で0が入る
-    ubg += [0, 0, 0, 0, 0, 0, 0, 0] # 等式制約は lower-bound と upper-bound を同じ値にすることで設定
-    Xk = Xk1
-
-# 終端コストのパラメータ 
-x_ref = [2.0, 2.0, 0, 0, 0, 0, 0, 0]  # 目標状態
-Q = [10.0, 10.0, 0.01, 0.1, 0.1, 0.1, 0.1, 0.1]       # 状態への重み
-Vf = 0                            # 終端コスト
-for i in range(nx):
-    Vf += 0.5 * Q[i] * (Xk[i]-x_ref[i])**2 
-for i in range(nu):
-    Vf += 0.5 * R[i] * Uk[i]**2
-J = J + Vf                        # コスト関数に終端コストを追加
-
-
-# 非線形計画問題(NLP)
-nlp = {'f': J, 'x': vertcat(*w), 'g': vertcat(*g)} 
-# Ipopt ソルバー，最小バリアパラメータを0.001に設定
-solver = nlpsol('solver', 'ipopt', nlp, {'ipopt':{'mu_min':0.001}}) 
-# SQP ソルバー（QPソルバーはqpOASESを使用），QPソルバーの regularization 無効，QPソルバーのプリント無効
-# solver = nlpsol('solver', 'sqpmethod', nlp, {'max_iter':100, 'qpsol_options':{'enableRegularisation':False, 'printLevel':None}})
-
-# NLPを解く
-sol = solver(x0=w0, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg)
-w_opt = sol['x'].full().flatten()
-
-# 解をプロット
-x0_opt = w_opt[0::nx+nu]
-x1_opt = w_opt[1::nx+nu]
-x2_opt = w_opt[2::nx+nu]
-x3_opt = w_opt[3::nx+nu]
-x4_opt = w_opt[4::nx+nu]
-x5_opt = w_opt[5::nx+nu]
-x6_opt = w_opt[6::nx+nu]
-x7_opt = w_opt[7::nx+nu]
-u0_opt = w_opt[8::nx+nu]
-u1_opt  = w_opt[9::nx+nu]
-u2_opt  = w_opt[10::nx+nu]
-
-tgrid = [dt*k for k in range(N+1)]
-import matplotlib.pyplot as plt
-plt.clf() # clear current figure
-fig,axes = plt.subplots(2,3)
-axes[0,0].plot(x0_opt, x1_opt, '--')
-axes[0,0].set_title('x-y')
-axes[0,2].plot(tgrid,x3_opt,'--')
-axes[0,2].set_title('V')
-axes[1,1].plot(tgrid,x4_opt,'--')
-axes[1,1].set_title('beta')
-axes[1,2].plot(tgrid,x6_opt,'--')
-axes[1,2].set_title('beta_dot')
-plt.figure(1)
-plt.step(tgrid, vertcat(DM.nan(1), u1_opt), '-.')
-plt.step(tgrid, vertcat(DM.nan(1), u2_opt), '-.')
-plt.xlabel('t')
-plt.legend(['y(x2)', 'beta(x3)','u1(V)','u2(beta_dot)'])
-plt.plot(x1_opt, x2_opt, '--')
-plt.figure(2)
-plt.grid()
-plt.show()
+if __name__ == '__main__':
+    trajectory_creator = TrajectoryCreator()
+    trajectory_creator.start_point(0,0,0,0,0,0,0,0)
+    trajectory_creator.pass_point(1,1,0,0,0,0,0,0)
+    # trajectory_creator.pass_point(2,2,0,0,0,0,0,0)
+    trajectory_creator.end_point(1,1,0,0,0,0,0,0)
+    trajectory_creator.set_parameter(10,10,10,10,10,10)
+    trajectory_creator.print_sol()

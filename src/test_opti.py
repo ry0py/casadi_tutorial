@@ -2,8 +2,6 @@
 # casadiのOptiスタックを使って始点と終点を設定し
 # 適切な制約条件を設定したら時間を最短となるように軌道を作成してれる
 
-
-
 from casadi import *
 import numpy
 
@@ -15,12 +13,13 @@ np = 6      # パラメータの次元
 nz = 2      # 代数変数の次元
 opti = casadi.Opti() # 最適化問題を宣言
 
-X = opti.variable(nx,N)  # 状態変数の宣言 X[0]~X[7] max 799 or [1,2]のようにアクセスできる
+X = opti.variable(nx,N)  # 状態変数の宣言 X[0]~X[7] 
+print(X)
 u = opti.variable(nu,N)  # 入力変数の宣言 u[0]~u[2]
 z = opti.variable(nz,N)  # パラメータ変数の宣言 z[0]~z[5]
 p = opti.parameter(np) # パラメータの宣言 
 T = opti.variable() # 離散化時間間隔の宣言
-dt = T/N
+dt = T/N # dtをホライゾン分変数として作って合計したものを最小化する問題にすると解が発散した
 
 # パラメータの追加
 M = p[0]
@@ -56,6 +55,7 @@ for i in range(N-1):
     
     
     # 状態方程式を前進オイラー法で離散化して等式条件として制約条件に追加
+    # TODO 離散化の方式を直接コロケーション法でやる
     opti.subject_to(X[0,i+1]==x+ dt*V*cos(beta)) # x方向の位置
     opti.subject_to(X[1,i+1]==y + dt*V*sin(beta)) # y方向の位置
     opti.subject_to(X[2,i+1]==theta + dt*theta_dot) # 機体の角度
@@ -115,26 +115,39 @@ plt.title('position')
 plt.grid()
 
 plt.figure()
+plt.xlabel('Time [s]')
+plt.ylabel('Velocity [m/s]')
+plt.title('Velocity over Time')
 plt.plot(dt_opt, x_opt[3,:],'-')
 plt.grid()
 
 plt.figure()
+plt.xlabel('Time [s]')
+plt.ylabel('Steering Angle [rad]')
 plt.plot(dt_opt, x_opt[4,:],'-')
 plt.grid()
 
 plt.figure()
+plt.xlabel('Time [s]')
+plt.ylabel('Steering Angle [rad]')
 plt.plot(dt_opt, x_opt[5,:],'-')
 plt.grid()
 
 plt.figure()
+plt.xlabel('Time [s]')
+plt.ylabel('Steering Angle [rad]')
 plt.plot(dt_opt, x_opt[6,:],'-')
 plt.grid()
 
 plt.figure()
+plt.xlabel('Time [s]')
+plt.ylabel('Steering Angle [rad]')
 plt.plot(dt_opt, z_opt[0,:],'-')
 plt.grid()
 
 plt.figure()
+plt.xlabel('Time [s]')
+plt.ylabel('Steering Angle [rad]')
 plt.plot(dt_opt, z_opt[1,:],'-')
 plt.grid()
 # plt.figure()
