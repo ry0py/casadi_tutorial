@@ -7,7 +7,8 @@ import numpy
 class TrajectoryCreator:
     def __init__(self):
         self.state = []
-        self.N = 100      # ホライゾン離散化グリッド数 #TODO 経過点を増やした場合の合計にするか悩み中
+        self.param = []
+        self.N = 100      # ホライゾン離散化グリッド数 
         self.opti = casadi.Opti()
         self.M=0 # 機体の質量[kg]
         self.max_steer_acc=0 # 操舵の角加速度[rad/s^2]
@@ -15,7 +16,6 @@ class TrajectoryCreator:
         self.max_steer_torque=0 # 操舵のトルク[Nm]
         self.max_power=0 # 機体の最大出力[W]
         self.max_cf=0 # 機体の最大コーナリングフォース[N]
-        self.ax_steer_torque=0 # 操舵のトルク[Nm]
         self.sol = None
         self.X = 0
         self.u = 0
@@ -35,13 +35,24 @@ class TrajectoryCreator:
         self.p = self.opti.parameter(np) 
         self.T = self.opti.variable()
         self.dt = self.T/(self.N*(len(self.state)-1))
+        self.M = self.p[0]
+        self.max_steer_acc = self.p[1]
+        self.max_steer_vel = self.p[2]
+        self.max_steer_torque = self.p[3]
+        self.max_power = self.p[4]
+        self.max_cf = self.p[5]
+        self.opti.set_value(self.M,self.param[0])
+        self.opti.set_value(self.max_steer_acc,self.param[1])
+        self.opti.set_value(self.max_steer_vel,self.param[2])
+        self.opti.set_value(self.max_steer_torque,self.param[3])
+        self.opti.set_value(self.max_power,self.param[4])
+        self.opti.set_value(self.max_cf,self.param[5])
     
     def _add_point(self,x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot):
         self.state.append([x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot])
         # 指定したポイントの数だけfor分を回す
     def _problem(self,num):
         for i in range((self.N-1)*num,(self.N-1)*(num+1)):
-            print(i)
             x = self.X[0,i]
             y = self.X[1,i]
             theta = self.X[2,i]
@@ -50,11 +61,14 @@ class TrajectoryCreator:
             theta_dot = self.X[5,i]
             beta_dot = self.X[6,i]
             theta_ddot = self.X[7,i]
+            
             Uw = self.u[0,i]
             Us = self.u[1,i]
             Utheta = self.u[2,i]
+            
             cf = self.z[0,i]
             Power = self.z[1,i]
+            
             self.opti.subject_to(self.dt>=0)
             self.opti.subject_to(self.X[0,i+1]==x+ self.dt*V*cos(beta))
             self.opti.subject_to(self.X[1,i+1]==y + self.dt*V*sin(beta))
@@ -64,13 +78,14 @@ class TrajectoryCreator:
             self.opti.subject_to(self.X[5,i+1]==theta_dot + self.dt*theta_ddot)
             self.opti.subject_to(self.X[6,i+1]==beta_dot +self.dt*Us)
             self.opti.subject_to(self.X[7,i+1]==theta_ddot + self.dt*Utheta)
+            
             self.opti.subject_to(cf-self.M*V*beta_dot==0)
             self.opti.subject_to(Power-self.M*V*Uw==0)
             self.opti.subject_to(-self.max_steer_acc<=Us)
             self.opti.subject_to(Us<=self.max_steer_acc)
             self.opti.subject_to(self.max_steer_vel<=beta_dot)
             self.opti.subject_to(beta_dot<=self.max_steer_vel)
-            self.opti.subject_to(-self.ax_steer_torque<=Uw)
+            self.opti.subject_to(-self.max_steer_torque<=Uw)
             self.opti.subject_to(Uw<=self.max_steer_torque)
             self.opti.subject_to(-self.max_power<=Power)
             self.opti.subject_to(Power<=self.max_power)
@@ -79,16 +94,21 @@ class TrajectoryCreator:
         
     def _solve(self):
         self._set_variable()
-        for i in range(len(self.state)-1): #終端に達したら終わりなので-1で合計で-2
+        
+        for i in range(len(self.state)-1): #終端に達したら終わりなので-1
             self._problem(i)
             for k in range(len(self.state[i])):
                 if self.state[i][k] !=None:
                     self.opti.subject_to(self.X[k,self.N*i]==self.state[i][k]) # 初期状態の設定
-                    self.opti.subject_to(self.X[k,self.N*i-1]==self.state[i+1][k]) # 終端状態の設定
+                if self.state[i+1][k] !=None:
+                    self.opti.subject_to(self.X[k,self.N*(i+1)-1]==self.state[i+1][k]) # 終端状態の設定
+        
+        
+            
         self.opti.minimize(self.T)
         self.opti.solver('ipopt')
-        print(self.opti.debug.value(self.T))
-        # self.sol = self.opti.solve()
+        # print(self.opti.debug.value(self.T))
+        self.sol = self.opti.solve()
         
     def start_point(self,x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot):
         self._add_point(x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot)
@@ -107,7 +127,7 @@ class TrajectoryCreator:
         u_opt = self.sol.value(self.u) # 結果の取得
         z_opt = self.sol.value(self.z) # 結果の取得
         t_opt = self.sol.value(self.T) # 結果の取得
-        dt_opt = numpy.linspace(0,t_opt,num =self.N)
+        dt_opt = numpy.linspace(0,t_opt,num =self.N*(len(self.state)-1))
         print(t_opt)
 
         # 結果のプロット
@@ -160,25 +180,15 @@ class TrajectoryCreator:
         
     
     def set_parameter(self,M,max_steer_acc,max_steer_vel,max_steer_torque,max_power,max_cf):
-        self.M = self.p[0]
-        self.max_steer_acc = self.p[1]
-        self.max_steer_vel = self.p[2]
-        self.max_steer_torque = self.p[3]
-        self.max_power = self.p[4]
-        self.max_cf = self.p[5]
-        self.opti.set_value(self.M,M)
-        self.opti.set_value(self.max_steer_acc,max_steer_acc)
-        self.opti.set_value(self.max_steer_vel,max_steer_vel)
-        self.opti.set_value(self.max_steer_torque,max_steer_torque)
-        self.opti.set_value(self.max_power,max_power)
-        self.opti.set_value(self.max_cf,max_cf)
+        self.param = [M,max_steer_acc,max_steer_vel,max_steer_torque,max_power,max_cf]
+
     
     
 if __name__ == '__main__':
     trajectory_creator = TrajectoryCreator()
+    trajectory_creator.set_parameter(10,10,10,10,10,10)
     trajectory_creator.start_point(0,0,0,0,0,0,0,0)
-    trajectory_creator.pass_point(1,1,0,0,0,0,0,0)
+    # trajectory_creator.pass_point(1,1,0,0,0,0,0,0)
     # trajectory_creator.pass_point(2,2,0,0,0,0,0,0)
     trajectory_creator.end_point(1,1,0,0,0,0,0,0)
-    trajectory_creator.set_parameter(10,10,10,10,10,10)
     trajectory_creator.print_sol()
