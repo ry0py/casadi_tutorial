@@ -11,18 +11,18 @@ class TrajectoryCreator:
         self.N = 100      # ホライゾン離散化グリッド数 
         self.opti = casadi.Opti()
         self.M=0 # 機体の質量[kg]
-        self.max_steer_acc=0 # 操舵の角加速度[rad/s^2]
-        self.max_steer_vel=0 # 操舵の角速度[rad/s]
-        self.max_steer_torque=0 # 操舵のトルク[Nm]
-        self.max_power=0 # 機体の最大出力[W]
-        self.max_cf=0 # 機体の最大コーナリングフォース[N]
+        self.max_steer_acc=None # 操舵の角加速度[rad/s^2]
+        self.max_steer_vel=None # 操舵の角速度[rad/s]
+        self.max_steer_torque=None # 操舵のトルク[Nm]
+        self.max_power=None # 機体の最大出力[W]
+        self.max_cf=None # 機体の最大コーナリングフォース[N]
         self.sol = None
-        self.X = 0
-        self.u = 0
-        self.z = 0
-        self.p = 0 
-        self.T = 0
-        self.dt = 0
+        self.X = None
+        self.u = None
+        self.z = None
+        self.p = None
+        self.T = None
+        self.dt = None
     
     def _set_variable(self):
         nx = 8      # 状態空間の次元
@@ -53,7 +53,7 @@ class TrajectoryCreator:
         self.state.append([x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot])
         # 指定したポイントの数だけfor分を回す
     def _problem(self,num):
-        for i in range((self.N-1)*num,(self.N-1)*(num+1)):
+        for i in range(self.N*num,self.N*(num+1)-1): # self.N*(num+1)-1は差分方程式を使うために-1
             x = self.X[0,i]
             y = self.X[1,i]
             theta = self.X[2,i]
@@ -94,24 +94,29 @@ class TrajectoryCreator:
             self.opti.subject_to(Power<=self.max_power)
             self.opti.subject_to(-self.max_cf<=cf)
             self.opti.subject_to(cf<=self.max_cf)
+            self.opti.subject_to(-3<=Utheta)
+            self.opti.subject_to(Utheta<=3)
+            # self.opti.subject_to(0<=V)
         
     def _solve(self):
         self._set_variable()
         
         for i in range(len(self.state)-1): #終端に達したら終わりなので-1
-            self._problem(i)
             for k in range(len(self.state[i])):
                 if self.state[i][k] !=None:
                     self.opti.subject_to(self.X[k,self.N*i]==self.state[i][k]) # 初期状態の設定
                 if self.state[i+1][k] !=None:
                     self.opti.subject_to(self.X[k,self.N*(i+1)-1]==self.state[i+1][k]) # 終端状態の設定
-    
+            self._problem(i)
+        
         
         
         self.opti.minimize(self.T)
         self.opti.solver('ipopt')
         # print(self.opti.debug.value(self.T))
         self.sol = self.opti.solve()
+        for i in range(self.N*(len(self.state)-1)):
+            print(self.X[3,i],self.sol.value(self.X[3,i]))
         
     def start_point(self,x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot):
         self._add_point(x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot)
@@ -192,6 +197,13 @@ class TrajectoryCreator:
         plt.title('Power over Time')
         plt.plot(dt_opt, z_opt[1,:],'-')
         plt.grid()
+        
+        plt.figure()
+        plt.xlabel('Time [s]')
+        plt.ylabel('Uw [Nm]')
+        plt.title('Uw over Time')
+        plt.plot(dt_opt, u_opt[0,:],'-')
+        plt.grid()
 
         plt.show()
 
@@ -208,7 +220,8 @@ if __name__ == '__main__':
     trajectory_creator = TrajectoryCreator()
     trajectory_creator.set_parameter(10,10,10,10,10,10)
     trajectory_creator.start_point(0,0,0,0,0,0,0,0)
-    trajectory_creator.pass_point(1,1.5,0,0,0,0,0,0)
+    trajectory_creator.pass_point(1,1.5,0,None,None,None,None,None)
+    trajectory_creator.pass_point(2,2,0,None,None,None,None,None)
     # trajectory_creator.pass_point(2,2,0,0,0,0,0,0)
-    trajectory_creator.end_point(2,2,0,0,0,0,0,0)
+    trajectory_creator.end_point(4,4,0,0.0,0,0,0,0)
     trajectory_creator.print_sol()
