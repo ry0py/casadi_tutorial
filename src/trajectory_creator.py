@@ -53,7 +53,7 @@ class TrajectoryCreator:
         self.state.append([x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot])
         # 指定したポイントの数だけfor分を回す
     def _problem(self,num):
-        for i in range(self.N*num,self.N*(num+1)-1): # self.N*(num+1)-1は差分方程式を使うために-1
+        for i in range((self.N-1)*num,(self.N-1)*(num+1)+1): # self.N*(num+1)-1は差分方程式を使うために-1
             x = self.X[0,i]
             y = self.X[1,i]
             theta = self.X[2,i]
@@ -104,9 +104,9 @@ class TrajectoryCreator:
         for i in range(len(self.state)-1): #終端に達したら終わりなので-1
             for k in range(len(self.state[i])):
                 if self.state[i][k] !=None:
-                    self.opti.subject_to(self.X[k,self.N*i]==self.state[i][k]) # 初期状態の設定
+                    self.opti.subject_to(self.X[k,(self.N-1)*i]==self.state[i][k]) # 初期状態の設定
                 if self.state[i+1][k] !=None:
-                    self.opti.subject_to(self.X[k,self.N*(i+1)-1]==self.state[i+1][k]) # 終端状態の設定
+                    self.opti.subject_to(self.X[k,(self.N-1)*(i+1)]==self.state[i+1][k]) # 終端状態の設定
             self._problem(i)
         
         
