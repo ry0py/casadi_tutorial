@@ -48,6 +48,7 @@ class TrajectoryCreator:
         self.opti.set_value(self.max_power,self.param[4])
         self.opti.set_value(self.max_cf,self.param[5])
     
+    
     def _add_point(self,x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot):
         self.state.append([x,y,theta,V,beta,theta_dot,beta_dot,theta_ddot])
         # 指定したポイントの数だけfor分を回す
@@ -81,9 +82,11 @@ class TrajectoryCreator:
             
             self.opti.subject_to(cf-self.M*V*beta_dot==0)
             self.opti.subject_to(Power-self.M*V*Uw==0)
+            
+            
             self.opti.subject_to(-self.max_steer_acc<=Us)
             self.opti.subject_to(Us<=self.max_steer_acc)
-            self.opti.subject_to(self.max_steer_vel<=beta_dot)
+            self.opti.subject_to(-self.max_steer_vel<=beta_dot)
             self.opti.subject_to(beta_dot<=self.max_steer_vel)
             self.opti.subject_to(-self.max_steer_torque<=Uw)
             self.opti.subject_to(Uw<=self.max_steer_torque)
@@ -102,9 +105,9 @@ class TrajectoryCreator:
                     self.opti.subject_to(self.X[k,self.N*i]==self.state[i][k]) # 初期状態の設定
                 if self.state[i+1][k] !=None:
                     self.opti.subject_to(self.X[k,self.N*(i+1)-1]==self.state[i+1][k]) # 終端状態の設定
+    
         
         
-            
         self.opti.minimize(self.T)
         self.opti.solver('ipopt')
         # print(self.opti.debug.value(self.T))
@@ -139,6 +142,14 @@ class TrajectoryCreator:
         plt.ylabel('y')
         plt.title('position')
         plt.grid()
+        
+        plt.figure()
+        plt.xlabel('Time [s]')
+        plt.ylabel('theta [rad]')
+        plt.title('theta over Time')
+        plt.plot(dt_opt, x_opt[2,:],'-')
+        plt.grid()
+        
 
         plt.figure()
         plt.xlabel('Time [s]')
@@ -150,26 +161,35 @@ class TrajectoryCreator:
         plt.figure()
         plt.xlabel('Time [s]')
         plt.ylabel('Steering Angle [rad]')
+        plt.title('Steering Angle over Time')
         plt.plot(dt_opt, x_opt[4,:],'-')
         plt.grid()
 
         plt.figure()
         plt.xlabel('Time [s]')
-        plt.ylabel('Steering Angle [rad]')
+        plt.ylabel('theta_dot [rad/s]')
+        plt.title('theta_dot over Time')
         plt.plot(dt_opt, x_opt[5,:],'-')
         plt.grid()
 
         plt.figure()
         plt.xlabel('Time [s]')
-        plt.ylabel('Steering Angle [rad]')
+        plt.ylabel('beta_dot [rad/s]')
+        plt.title('beta_dot over Time')
         plt.plot(dt_opt, x_opt[6,:],'-')
         plt.grid()
 
         plt.figure()
+        plt.xlabel('Time [s]')
+        plt.ylabel('cf [N]')
+        plt.title('cf over Time')
         plt.plot(dt_opt, z_opt[0,:],'-')
         plt.grid()
 
         plt.figure()
+        plt.xlabel('Time [s]')
+        plt.ylabel('Power [W]')
+        plt.title('Power over Time')
         plt.plot(dt_opt, z_opt[1,:],'-')
         plt.grid()
 
@@ -188,7 +208,7 @@ if __name__ == '__main__':
     trajectory_creator = TrajectoryCreator()
     trajectory_creator.set_parameter(10,10,10,10,10,10)
     trajectory_creator.start_point(0,0,0,0,0,0,0,0)
-    # trajectory_creator.pass_point(1,1,0,0,0,0,0,0)
+    trajectory_creator.pass_point(1,1.5,0,0,0,0,0,0)
     # trajectory_creator.pass_point(2,2,0,0,0,0,0,0)
-    trajectory_creator.end_point(1,1,0,0,0,0,0,0)
+    trajectory_creator.end_point(2,2,0,0,0,0,0,0)
     trajectory_creator.print_sol()
